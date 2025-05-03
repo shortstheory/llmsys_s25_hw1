@@ -20,6 +20,7 @@ BATCH = 10
 
 def RParam(*shape):
     r = 0.1 * (minitorch.rand(shape, backend=BACKEND) - 0.5)
+    # r = minitorch.rand(shape, backend=BACKEND)
     return minitorch.Parameter(r)
 
 
@@ -33,8 +34,9 @@ class Linear(minitorch.Module):
         # 2. Initialize self.bias to be a random parameter of (out_size)
         # 3. Set self.out_size to be out_size
         # HINT: make sure to use the RParam function
-    
-        raise NotImplementedError
+        self.weights = RParam(in_size,out_size) #0.1*(minitorch.rand((in_size,out_size),BACKEND,self.training)-0.5)
+        self.bias =  RParam(1,out_size) #0.1*(minitorch.rand((1,out_size),BACKEND,self.training)-0.5)
+        # raise NotImplementedError
     
         # END ASSIGN1_3
 
@@ -49,9 +51,9 @@ class Linear(minitorch.Module):
         # 3. Apply Matrix Multiplication on input x and self.weights, and reshape the output to be of size (batch, self.out_size)
         # 4. Add self.bias
         # HINT: You can use the view function of minitorch.tensor for reshape
-
-        raise NotImplementedError
-    
+        # x = minitorch.rand((x.shape))
+        res = x@self.weights.value+self.bias.value
+        return res
         # END ASSIGN1_3
         
         
@@ -82,8 +84,8 @@ class Network(minitorch.Module):
         # BEGIN ASSIGN1_3
         # TODO
         # 1. Construct two linear layers: the first one is embedding_dim * hidden_dim, the second one is hidden_dim * 1
-
-        raise NotImplementedError
+        self.hidden_layer = Linear(embedding_dim, hidden_dim)
+        self.final_layer = Linear(hidden_dim,1)
         # END ASSIGN1_3
         
         
@@ -101,8 +103,16 @@ class Network(minitorch.Module):
         # 4. Apply the second linear layer
         # 5. Apply sigmoid and reshape to (batch)
         # HINT: You can use minitorch.dropout for dropout, and minitorch.tensor.relu for ReLU
-        
-        raise NotImplementedError
+        # print(self.hidden_layer.weights)
+        shape = embeddings.shape
+        embeddings = embeddings.mean(1).view(shape[0],shape[2])
+        embeddings = self.hidden_layer.forward(embeddings)
+        embeddings = embeddings.relu()
+        embeddings = minitorch.nn.dropout(embeddings,self.dropout_prob,not self.training)
+        embeddings = self.final_layer.forward(embeddings)
+        embeddings = embeddings.sigmoid()
+        embeddings = embeddings.view(shape[0])
+        return embeddings
     
         # END ASSIGN1_3
 
@@ -171,6 +181,7 @@ class SentenceSentimentTrain:
         (X_train, y_train) = data_train
         n_training_samples = len(X_train)
         optim = minitorch.Adam(self.model.parameters(), learning_rate)
+        print(self.model.parameters())
         losses = []
         train_accuracy = []
         validation_accuracy = []
@@ -186,7 +197,7 @@ class SentenceSentimentTrain:
                 range(0, n_training_samples, batch_size)
             ):
                 out=None
-                
+                # print((batch_num,example_num))
                 # BEGIN ASSIGN1_4
                 # TODO
                 # 1. Create x and y using minitorch.tensor function through our CudaKernelOps backend
@@ -196,11 +207,23 @@ class SentenceSentimentTrain:
                 # 5. Call backward function of the loss
                 # 6. Use Optimizer to take a gradient step
                 
-                raise NotImplementedError
-                # END ASSIGN1_4
-                
-                
-                # Save training results
+                x = minitorch.tensor(X_train[example_num:example_num+BATCH], BACKEND, True)
+                y = minitorch.tensor(y_train[example_num:example_num+BATCH], BACKEND, True)
+                out = model(x)
+                def binary_cross_entropy(y_true, y_pred):
+                    ones = minitorch.ones(y_pred.shape,BACKEND)
+                    bce = y_true * (y_pred.log())+(ones-y_true)*((ones-y_pred).log())
+                    bce = -bce.mean()
+                    return bce
+                def mse(y_true, y_pred):
+                    loss = (y_true-y_pred)**2
+                    loss = loss.mean()
+                    return loss
+                loss = binary_cross_entropy(y,out)
+                # loss = mse(y,out)
+                optim.zero_grad()
+                loss.backward()
+                optim.step()
                 train_predictions += get_predictions_array(y, out)
                 total_loss += loss[0]
                 n_batches += 1
@@ -217,8 +240,12 @@ class SentenceSentimentTrain:
                 # 2. Get the output of the model
                 # 3. Obtain validation predictions using the get_predictions_array function, and add to the validation_predictions list
                 # 4. Obtain the validation accuracy using the get_accuracy function, and add to the validation_accuracy list
-                
-                raise NotImplementedError
+                x = minitorch.tensor(X_val, BACKEND, True)
+                y = minitorch.tensor(y_val, BACKEND, True)
+                out = model(x)
+                validation_predictions += get_predictions_array(y, out)
+                validation_accuracy.append(get_accuracy(validation_predictions))
+                # print(validation_accuracy)
                 
                 # END ASSIGN1_4
                 

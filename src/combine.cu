@@ -241,7 +241,56 @@ __global__ void MatrixMultiplyKernel(
     // 6. Synchronize to make sure all threads are done computing the output tile for (row, col)
     // 7. Write the output to global memory
 
-    assert(false && "Not Implemented");
+    __shared__ float c_shared[TILE][TILE];
+    c_shared[threadIdx.x][threadIdx.y] = 0.f;
+    int i = blockIdx.x;
+    int j = blockIdx.y;  
+    int aIndex[3];
+    int bIndex[3];
+    int cIndex[3];
+    aIndex[0] = batch;
+    bIndex[0] = batch;
+    cIndex[0] = batch;
+    cIndex[1] = i*blockDim.x+threadIdx.x;
+    cIndex[2] = j*blockDim.y+threadIdx.y;
+
+    for (int k = 0; k < a_shape[2]; k+=TILE)
+    {
+        aIndex[1] = cIndex[1];
+        aIndex[2] = k+threadIdx.y;
+
+        bIndex[1] = k+threadIdx.x;
+        bIndex[2] = cIndex[2];
+        // printf("A Index %d,%d B Index %d,%d\n",aIndex[1],aIndex[2],bIndex[1],bIndex[2]);
+
+        if (aIndex[1] < a_shape[1] && aIndex[2] < a_shape[2]) 
+        {
+            int linearAIndex = index_to_position(aIndex, a_strides, 3);
+            a_shared[threadIdx.x][threadIdx.y] = a_storage[linearAIndex];
+        } else {
+            a_shared[threadIdx.x][threadIdx.y] = 0.f;
+        }
+        if (bIndex[1] < b_shape[1] && bIndex[2] < b_shape[2])
+        {
+            int linearBIndex = index_to_position(bIndex, b_strides, 3);
+            b_shared[threadIdx.x][threadIdx.y] = b_storage[linearBIndex];
+        } else{
+            b_shared[threadIdx.x][threadIdx.y] = 0.f;
+        }
+        __syncthreads();
+
+        for (int tileIdx = 0; tileIdx < TILE; tileIdx++)
+        {
+            c_shared[threadIdx.x][threadIdx.y] += a_shared[threadIdx.x][tileIdx]*b_shared[tileIdx][threadIdx.y];
+        }
+        // __syncthreads();
+
+    }
+    if (cIndex[1] < out_shape[1] && cIndex[2] < out_shape[2])
+    {
+        int linearOutIndex = index_to_position(cIndex, out_strides, 3);
+        out[linearOutIndex] = c_shared[threadIdx.x][threadIdx.y];    
+    }
     /// END ASSIGN1_2
 }
 
@@ -293,8 +342,12 @@ __global__ void mapKernel(
     // 4. Calculate the position of element in in_array according to in_index and in_strides
     // 5. Calculate the position of element in out_array according to out_index and out_strides
     // 6. Apply the unary function to the input element and write the output to the out memory
-    
-    assert(false && "Not Implemented");
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    to_index(idx, out_shape, out_index, shape_size);
+    broadcast_index(out_index, out_shape, in_shape, in_index, shape_size,shape_size);
+    int linearOutputIdx = index_to_position(out_index, out_strides, shape_size);
+    int linearInputIdx = index_to_position(in_index, in_strides, shape_size);
+    out[linearOutputIdx] = fn(fn_id, in_storage[linearInputIdx]);
     /// END ASSIGN1_2
 }
 
@@ -350,8 +403,24 @@ __global__ void reduceKernel(
     // 3. Initialize the reduce_value to the output element
     // 4. Iterate over the reduce_dim dimension of the input array to compute the reduced value
     // 5. Write the reduced value to out memory
-    
-    assert(false && "Not Implemented");
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    to_index(idx, out_shape, out_index, shape_size);
+
+    float reduceValue = reduce_value;
+    int in_index[MAX_DIMS];
+    for (size_t i{}; i < shape_size; i++)
+    {
+        in_index[i]=out_index[i];
+    }
+    for (size_t i{}; i < a_shape[reduce_dim]; i++)
+    {
+        in_index[reduce_dim] = i;
+        int linearInputIdx = index_to_position(in_index, a_strides, shape_size);
+        reduceValue = fn(fn_id, a_storage[linearInputIdx], reduceValue);
+    }
+
+    int linearOutputIdx = index_to_position(out_index, out_strides, shape_size);
+    out[linearOutputIdx]=reduceValue;
     /// END ASSIGN1_2
 }
 
@@ -416,8 +485,17 @@ __global__ void zipKernel(
     // 6. Broadcast the out_index to the b_index according to b_shape
     // 7.Calculate the position of element in b_array according to b_index and b_strides
     // 8. Apply the binary function to the input elements in a_array & b_array and write the output to the out memory
-    
-    assert(false && "Not Implemented");
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    to_index(idx, out_shape, out_index, out_shape_size);
+    broadcast_index(out_index, out_shape, a_shape, a_index, out_shape_size,a_shape_size);
+    broadcast_index(out_index, out_shape, b_shape, b_index, out_shape_size,b_shape_size);
+
+    int linearOutputIdx = index_to_position(out_index, out_strides, out_shape_size);
+    int linearAIdx = index_to_position(a_index, a_strides, a_shape_size);
+    int linearBIdx = index_to_position(b_index, b_strides, b_shape_size);
+    out[linearOutputIdx] = fn(fn_id, a_storage[linearAIdx], b_storage[linearBIdx]);
+
+    // assert(false && "Not Implemented");
     /// END ASSIGN1_2
 }
 
@@ -525,6 +603,7 @@ void tensorMap(
     
     int threadsPerBlock = 32;
     int blocksPerGrid = (out_size + threadsPerBlock - 1) / threadsPerBlock;
+
     mapKernel<<<blocksPerGrid, threadsPerBlock>>>(
       d_out, d_out_shape, d_out_strides, out_size, 
       d_in, d_in_shape, d_in_strides, 

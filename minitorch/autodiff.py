@@ -102,9 +102,19 @@ def topological_sort(variable: Variable) -> Iterable[Variable]:
     """
     # BEGIN ASSIGN1_1
     # TODO
-    
-    raise NotImplementedError("Task Autodiff Not Implemented Yet")
-    # END ASSIGN1_1
+    visited = set()
+    top_sort = []
+    def dfs(node):
+        if node.unique_id in visited:
+            return
+        visited.add(node.unique_id)
+        for p in node.parents:
+            if p.is_constant():
+                continue
+            dfs(p)
+        top_sort.insert(0,node)
+    dfs(variable)
+    return iter(top_sort)
 
 
 def backpropagate(variable: Variable, deriv: Any) -> None:
@@ -120,10 +130,27 @@ def backpropagate(variable: Variable, deriv: Any) -> None:
     """
     # BEGIN ASSIGN1_1
     # TODO
-   
-    raise NotImplementedError("Task Autodiff Not Implemented Yet")
+    
+    # raise NotImplementedError("Task Autodiff Not Implemented Yet")
     # END ASSIGN1_1
-
+    topo_sort = topological_sort(variable)
+    intermediate_grads = {}
+    intermediate_grads[variable.unique_id] = deriv
+    for v in topo_sort:
+        if v.is_leaf():
+            if v.unique_id in intermediate_grads:
+                v.accumulate_derivative(intermediate_grads[v.unique_id])
+            else:
+                v.accumulate_derivative(deriv)            
+        else:
+            gradients = v.chain_rule(intermediate_grads[v.unique_id])
+            for grad in gradients:
+                parent_var = grad[0]
+                g = grad[1]
+                if parent_var.unique_id in intermediate_grads:
+                    intermediate_grads[parent_var.unique_id] += g
+                else:
+                    intermediate_grads[parent_var.unique_id] = g
 
 @dataclass
 class Context:

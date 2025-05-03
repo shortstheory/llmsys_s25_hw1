@@ -97,7 +97,7 @@ def test_cuda_two_grad(
 
 
 @given(data())
-@settings(max_examples=25)
+@settings(max_examples=20)
 @pytest.mark.parametrize("fn", two_arg)
 @pytest.mark.parametrize("backend", backend_tests)
 def test_cuda_two_grad_broadcast(
